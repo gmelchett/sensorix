@@ -1,0 +1,15 @@
+#!/sbin/openrc-run
+
+supervisor=supervise-daemon
+name=sensorix
+command="/usr/local/bin/sensorix"
+command_user="jonas"
+command_args="-c /etc/sensorix.conf"
+supervise_daemon_args=" --stdout '/var/log/sensorix/stdout.log' --stderr '/var/log/sensorix/stderr.log'"
+pidfile="/run/sensorix.pid"
+
+depend() {
+        use logger dns
+        need net
+        after firewall mysql postgresql
+}

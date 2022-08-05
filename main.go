@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -37,9 +38,6 @@ var mailAuth = map[string]smtp.AuthType{
 	"crammd5": smtp.AuthCRAMMD5,
 }
 
-type alert struct {
-}
-
 type gotifyCfg struct {
 	token    string
 	host     string
@@ -59,37 +57,31 @@ type mailCfg struct {
 }
 
 type tempCfg struct {
-	alert     alert
 	path      string
 	warnlevel int64
 }
 
 type swapCfg struct {
-	alert alert
-	free  uint64
+	free uint64
 }
 
 type memCfg struct {
-	alert alert
-	free  uint64
+	free uint64
 }
 
 type pingCfg struct {
-	alert    alert
 	packages int
 	loss     int
 	hosts    []string
 }
 
 type cpuCfg struct {
-	alert alert
 	stuck int
 
-	stuckCount int // Not a configuration really, but I'm lazy
+	isStuck bool // Not a configuration really, but I'm lazy
 }
 
 type diskCfg struct {
-	alert  alert
 	mounts []string
 	frees  []uint64
 }
@@ -301,7 +293,7 @@ func parseCPUConfig(cfg *mini.Config) *cpuCfg {
 		stuck: int(cfg.IntegerFromSection("cpu", "stuck", 0)),
 	}
 	if cc.stuck == 0 {
-		fmt.Println("WARNING: cpu at 100% for zero seconds is invalid, change to 60 seconds.")
+		fmt.Println("WARNING: cpu at 100% for zero seconds is invalid, change to 60 minutes.")
 		cc.stuck = 60
 	}
 	return cc
@@ -366,21 +358,9 @@ func (cc *cpuCfg) thread() {
 		return
 	}
 
-	// Just measure for 1s, and accumulate since a process can migrate and then the
-	// average will for example: 50%, 50% instead of 100%, 0% load on a dual core
-	pload, _ := cpu.Percent(time.Second, true)
-
-	foundStuck := false
-	for i := range pload {
-		if pload[i] > 99.0 {
-			cc.stuckCount++
-			foundStuck = true
-			break // Just count one per second
-		}
-	}
-
-	if !foundStuck {
-		cc.stuckCount = 0
+	for {
+		pload, _ := cpu.Percent(time.Duration(cc.stuck)*time.Minute, false)
+		cc.isStuck = pload[0] > 100.0
 	}
 }
 
@@ -389,8 +369,8 @@ func (cc *cpuCfg) check() error {
 		return nil
 	}
 
-	if cc.stuckCount >= cc.stuck {
-		return fmt.Errorf("CPU: WARNING: At least one core of the CPU has been loaded to 100%% for %ds", cc.stuck)
+	if cc.isStuck {
+		return fmt.Errorf("CPU: WARNING: CPU is higher than 100%%")
 	}
 	return nil
 }
@@ -502,11 +482,11 @@ func (lx *lxdCfg) check() error {
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return fmt.Errorf("WARNING: lxd: Getting stdout \"%s\" failed with: %v", lx.cmd, err)
+		return fmt.Errorf("LXD: WARNING: Getting stdout \"%s\" failed with: %v", lx.cmd, err)
 	}
 
 	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("WARNING: lxd: Start failed with: %v", err)
+		return fmt.Errorf("LXD: WARNING: Start failed with: %v", err)
 	}
 
 	var result error
@@ -516,7 +496,7 @@ func (lx *lxdCfg) check() error {
 		var clusterStat lxcClusterList
 		err = json.NewDecoder(stdout).Decode(&clusterStat)
 		if err != nil {
-			result = fmt.Errorf("WARNING: lxc: Failed parsing json output from lxc command")
+			result = fmt.Errorf("LXD: WARNING: Failed parsing json output from lxc command")
 			return
 		}
 
@@ -530,7 +510,7 @@ func (lx *lxdCfg) check() error {
 			}
 		}
 		if errMsg != "" {
-			result = fmt.Errorf("WARNING: lxd:\n%s", errMsg)
+			result = fmt.Errorf("LXD: WARNING:\n%s", errMsg)
 			return
 		}
 
@@ -540,7 +520,7 @@ func (lx *lxdCfg) check() error {
 	select {
 	case <-time.After(time.Second * 5):
 		cmd.Process.Kill()
-		return fmt.Errorf("WARNING: lxd: lxc command timed out")
+		return fmt.Errorf("LXD: WARNING: lxc command timed out")
 	case <-errch:
 		return result
 	}
@@ -642,20 +622,14 @@ func (mc *mailCfg) send(title, msg string) {
 	}
 }
 
-func (sx *sensorix) alert(alert *alert, err error) {
-
-}
-
 func main() {
-	cfgFile := "sensorix.conf"
+	var cfgFile string
+	var testMail, testGotify bool
 
-	switch len(os.Args) {
-	case 1:
-	case 2:
-		cfgFile = os.Args[1]
-	default:
-		log.Fatalf("Too many command line arguments. Syntax: %s <config file>\n", os.Args[0])
-	}
+	flag.StringVar(&cfgFile, "c", "sensorix.conf", "Configuration file.")
+	flag.BoolVar(&testMail, "m", false, "Send a test mail.")
+	flag.BoolVar(&testGotify, "g", false, "Send a test gotify message.")
+	flag.Parse()
 
 	cfg, err := mini.LoadConfiguration(cfgFile)
 	if err != nil {
@@ -669,6 +643,14 @@ func main() {
 
 	sx.gotify = parseGotifyConfig(cfg)
 	sx.mail = parseMailConfig(cfg)
+
+	if testMail {
+		sx.mail.send("sensorix: Test mail", "\nHi,\nThis is a test mail sent from sensorix.\n")
+	}
+
+	if testGotify {
+		sx.gotify.send("sensorix: Test message", "\nHi,\nThis is a test message sent from sensorix.\n")
+	}
 
 	sx.temperature = parseTemperatureConfig(cfg)
 	sx.swap = parseSwapConfig(cfg)
@@ -689,9 +671,6 @@ func main() {
 
 		errMsg := ""
 
-		// TODO:
-		// disk/write data
-
 		if err := sx.temperature.check(); err != nil {
 			errMsg += fmt.Sprintf("\n%v", err)
 		}
@@ -704,24 +683,26 @@ func main() {
 		if err := sx.ping.check(); err != nil {
 			errMsg += fmt.Sprintf("\n%v", err)
 		}
-		if err := sx.ping.check(); err != nil {
-			errMsg += fmt.Sprintf("\n%v", err)
-		}
 		if err := sx.cpu.check(); err != nil {
 			errMsg += fmt.Sprintf("\n%v", err)
 		}
 		if err := sx.disk.check(); err != nil {
 			errMsg += fmt.Sprintf("\n%v", err)
 		}
+		if err := sx.lxd.check(); err != nil {
+			errMsg += fmt.Sprintf("\n%v", err)
+		}
+
 		if len(errMsg) == 0 {
 			delayMult = 1
-			nextAlert = 0
+			nextAlert = sx.interval
 			lastErrMsg = ""
 			continue
 		}
 
 		if errMsg != lastErrMsg {
 			delayMult = 1
+			nextAlert = sx.interval
 		}
 
 		nextAlert -= sx.interval
@@ -738,8 +719,9 @@ func main() {
 
 		title := fmt.Sprintf("sensorix: %s has ran into problems!", hn)
 
+		log.Printf("WARNING: %s\n%s\n", title, errMsg)
+
 		sx.gotify.send(title, title+"\n"+errMsg)
 		sx.mail.send(title, title+"\n"+errMsg)
-
 	}
 }
