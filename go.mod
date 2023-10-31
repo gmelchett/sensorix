@@ -3,7 +3,6 @@ module sensorix
 go 1.18
 
 require (
-	github.com/davecgh/go-spew v1.1.1
 	github.com/go-ping/ping v1.1.0
 	github.com/sasbury/mini v0.0.0-20181226232755-dc74af49394b
 	github.com/shirou/gopsutil/v3 v3.22.6

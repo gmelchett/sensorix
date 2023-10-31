@@ -77,8 +77,11 @@ type pingCfg struct {
 
 type cpuCfg struct {
 	stuck int
+}
 
-	isStuck bool // Not a configuration really, but I'm lazy
+type cpuStat struct {
+	cfg *cpuCfg
+	isStuck bool
 }
 
 type diskCfg struct {
@@ -99,7 +102,7 @@ type sensorix struct {
 	swap               *swapCfg
 	memory             *memCfg
 	ping               *pingCfg
-	cpu                *cpuCfg
+	cpu                cpuStat
 	disk               *diskCfg
 	lxd                *lxdCfg
 }
@@ -353,23 +356,23 @@ func parseMailConfig(cfg *mini.Config) *mailCfg {
 	return mcfg
 }
 
-func (cc *cpuCfg) thread() {
-	if cc == nil {
+func (cs *cpuStat) thread() {
+	if cs.cfg == nil {
 		return
 	}
 
 	for {
-		pload, _ := cpu.Percent(time.Duration(cc.stuck)*time.Minute, false)
-		cc.isStuck = pload[0] > 100.0
+		pload, _ := cpu.Percent(time.Duration(cs.cfg.stuck)*time.Minute, false)
+		cs.isStuck = pload[0] > 100.0
 	}
 }
 
-func (cc *cpuCfg) check() error {
-	if cc == nil {
+func (cs *cpuStat) check() error {
+	if cs.cfg == nil {
 		return nil
 	}
 
-	if cc.isStuck {
+	if cs.isStuck {
 		return fmt.Errorf("CPU: WARNING: CPU is higher than 100%%")
 	}
 	return nil
@@ -631,6 +634,12 @@ func main() {
 	flag.BoolVar(&testGotify, "g", false, "Send a test gotify message.")
 	flag.Parse()
 
+	hn, err := os.Hostname()
+
+	if err != nil {
+		log.Fatal("Can't figure out hostname: ", err);
+	}
+
 	cfg, err := mini.LoadConfiguration(cfgFile)
 	if err != nil {
 		log.Fatal("Failed to load sensorix configuration", err)
@@ -656,7 +665,7 @@ func main() {
 	sx.swap = parseSwapConfig(cfg)
 	sx.memory = parseMemConfig(cfg)
 	sx.ping = parsePingConfig(cfg)
-	sx.cpu = parseCPUConfig(cfg)
+	sx.cpu.cfg = parseCPUConfig(cfg)
 	sx.disk = parseDiskConfig(cfg)
 	sx.lxd = parseLXDConfig(cfg)
 
@@ -714,8 +723,6 @@ func main() {
 		delayMult++
 
 		lastErrMsg = errMsg
-
-		hn, _ := os.Hostname()
 
 		title := fmt.Sprintf("sensorix: %s has ran into problems!", hn)
 
