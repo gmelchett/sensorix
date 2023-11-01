@@ -1,7 +1,7 @@
 # sensorix
 
 There are tons of different kinds of monitoring programs. I just want to have
-a simple health monitor that can alert me when my little toy cluster need some
+a simple health monitor that can alert me when my toy servers are in need of
 attention. No graphs, no fancy dashboard.
 `sensorix` is there just to give a hands up that attention is needed.
 
@@ -15,6 +15,8 @@ attention. No graphs, no fancy dashboard.
   * Pong from other hosts
   * "lxc cluster list" status of all cluster members
 
+`sensorix` listens by default on localhost:5678 and any connection made there will receive
+the last update date. Useful to monitor the monitor from for example crontab.
 
 ## How `sensorix` alerts:
   * Mail via SMTP

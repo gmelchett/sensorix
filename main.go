@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -79,7 +80,7 @@ type cpuCfg struct {
 }
 
 type cpuStat struct {
-	cfg *cpuCfg
+	cfg     *cpuCfg
 	isStuck bool
 }
 
@@ -94,16 +95,18 @@ type lxdCfg struct {
 
 type sensorix struct {
 	interval           int
-	notificationrepeat int
-	gotify             *gotifyCfg
-	mail               *mailCfg
-	temperature        *tempCfg
-	swap               *swapCfg
-	memory             *memCfg
-	ping               *pingCfg
-	cpu                cpuStat
-	disk               *diskCfg
-	lxd                *lxdCfg
+	notificationRepeat int
+	lastUpdated        time.Time
+
+	gotify      *gotifyCfg
+	mail        *mailCfg
+	temperature *tempCfg
+	swap        *swapCfg
+	memory      *memCfg
+	ping        *pingCfg
+	cpu         cpuStat
+	disk        *diskCfg
+	lxd         *lxdCfg
 }
 
 func toGiB(v uint64) uint64 {
@@ -383,6 +386,31 @@ func (mc *mailCfg) send(title, msg string) {
 	}
 }
 
+func (sx *sensorix) startStatusServer(addr, port string) {
+
+	l, err := net.Listen("tcp4", addr+":"+port)
+	if err != nil {
+		log.Fatalf("Cannot list to: %s:%s Error: %v\n", addr, port, err)
+	}
+
+	go func() {
+		for {
+			c, err := l.Accept()
+			if err != nil {
+				log.Printf("WARNING: Failed to accept connection. Error: %v\n", err)
+				time.Sleep(time.Second)
+				continue
+			}
+			if !sx.lastUpdated.IsZero() {
+				c.Write([]byte(fmt.Sprintf("sensorix: Last updated: %s\n", sx.lastUpdated.Format(time.RFC1123))))
+			} else {
+				c.Write([]byte(fmt.Sprintf("sensorix: Last updated: -\n")))
+			}
+			c.Close()
+		}
+	}()
+}
+
 func main() {
 	var cfgFile string
 	var testMail, testGotify bool
@@ -395,7 +423,7 @@ func main() {
 	hn, err := os.Hostname()
 
 	if err != nil {
-		log.Fatal("Can't figure out hostname: ", err);
+		log.Fatal("Can't figure out hostname: ", err)
 	}
 
 	cfg, err := mini.LoadConfiguration(cfgFile)
@@ -404,9 +432,11 @@ func main() {
 	}
 
 	sx := &sensorix{
-		interval:           int(cfg.IntegerFromSection("sensorix", "interval", 60)),
-		notificationrepeat: int(cfg.IntegerFromSection("sensorix", "notificationrepeat", 20)),
+		interval:           int(cfg.IntegerFromSection("sensorix", "interval", 1)),
+		notificationRepeat: int(cfg.IntegerFromSection("sensorix", "notificationrepeat", 20)),
 	}
+
+	sx.startStatusServer(cfg.StringFromSection("sensorix", "addr", "localhost"), cfg.StringFromSection("sensorix", "port", "5678"))
 
 	sx.gotify = parseGotifyConfig(cfg)
 	sx.mail = parseMailConfig(cfg)
@@ -434,8 +464,6 @@ func main() {
 	nextAlert := 0
 
 	for {
-		time.Sleep(time.Duration(sx.interval) * time.Minute)
-
 		errMsg := ""
 
 		if err := sx.temperature.check(); err != nil {
@@ -460,33 +488,34 @@ func main() {
 			errMsg += fmt.Sprintf("\n%v", err)
 		}
 
-		if len(errMsg) == 0 {
+		if len(errMsg) > 0 {
+			if errMsg != lastErrMsg {
+				delayMult = 1
+				nextAlert = sx.interval
+			}
+
+			nextAlert -= sx.interval
+			if nextAlert <= 0 {
+
+				nextAlert = sx.notificationRepeat * delayMult
+				delayMult++
+
+				title := fmt.Sprintf("sensorix: %s has ran into problems!", hn)
+
+				log.Printf("WARNING: %s\n%s\n", title, errMsg)
+
+				sx.gotify.send(title, title+"\n"+errMsg)
+				sx.mail.send(title, title+"\n"+errMsg)
+			}
+		} else {
 			delayMult = 1
 			nextAlert = sx.interval
-			lastErrMsg = ""
-			continue
 		}
-
-		if errMsg != lastErrMsg {
-			delayMult = 1
-			nextAlert = sx.interval
-		}
-
-		nextAlert -= sx.interval
-		if nextAlert > 0 {
-			continue
-		}
-
-		nextAlert = sx.notificationrepeat * delayMult
-		delayMult++
 
 		lastErrMsg = errMsg
 
-		title := fmt.Sprintf("sensorix: %s has ran into problems!", hn)
+		sx.lastUpdated = time.Now()
 
-		log.Printf("WARNING: %s\n%s\n", title, errMsg)
-
-		sx.gotify.send(title, title+"\n"+errMsg)
-		sx.mail.send(title, title+"\n"+errMsg)
+		time.Sleep(time.Duration(sx.interval) * time.Minute)
 	}
 }
