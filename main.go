@@ -449,6 +449,10 @@ func main() {
 		sx.gotify.send("sensorix: Test message", "\nHi,\nThis is a test message sent from sensorix.\n")
 	}
 
+	if testMail || testGotify {
+		os.Exit(0)
+	}
+
 	sx.temperature = parseTemperatureConfig(cfg)
 	sx.swap = parseSwapConfig(cfg)
 	sx.memory = parseMemConfig(cfg)
