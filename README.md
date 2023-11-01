@@ -33,6 +33,8 @@ alerts are send via mail as well.
 ## Configuration
 See `sensorix.conf`
 
+You need to allow sensorix send pings. (If that feature is enabled):
+`sudo setcap cap_net_raw=+ep <path-to-sensorix-binary>`
 
 ## TODO:
   * Count amount of data written disks

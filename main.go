@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-ping/ping"
+	probing "github.com/prometheus-community/pro-bing"
 	"github.com/sasbury/mini"
 	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/disk"
@@ -296,16 +296,18 @@ func (pc *pingCfg) check() error {
 
 	for i := range pc.hosts {
 
-		pinger, err := ping.NewPinger(pc.hosts[i])
+		pinger, err := probing.NewPinger(pc.hosts[i])
 		if err != nil {
 			errMsg += fmt.Sprintf("Create new pinger for host %s failed: %v\n", pc.hosts[i], err)
 			continue
 		}
+		pinger.SetPrivileged(true)
 		pinger.Count = pc.packages
 
 		err = pinger.Run()
 		if err != nil {
-			errMsg += fmt.Sprintf("Running pinger failed: %v\n", err)
+			execFullPath, _ := os.Executable()
+			errMsg += fmt.Sprintf("ping failed: %v\nMaybe you need to run: 'setcap cap_net_raw=+ep %s'\n", err, execFullPath)
 			continue
 		}
 

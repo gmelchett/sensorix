@@ -3,7 +3,7 @@ module sensorix
 go 1.18
 
 require (
-	github.com/go-ping/ping v1.1.0
+	github.com/prometheus-community/pro-bing v0.3.0
 	github.com/sasbury/mini v0.0.0-20181226232755-dc74af49394b
 	github.com/shirou/gopsutil/v3 v3.23.10
 	github.com/xhit/go-simple-mail/v2 v2.16.0
