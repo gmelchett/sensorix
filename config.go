@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"io/ioutil"
 	"log"
 	"net/mail"
 	"os"
@@ -16,22 +15,14 @@ import (
 
 func parseTemperatureConfig(cfg *mini.Config) *tempCfg {
 	tc := &tempCfg{
-		path:      cfg.StringFromSection("temperature", "path", ""),
 		warnlevel: cfg.IntegerFromSection("temperature", "warnlevel", 0),
 	}
-	if tc.path == "" {
-		log.Printf("WARNING: No path to temperature sensor.\n")
-		return nil
-	}
+
 	if tc.warnlevel == 0 {
 		log.Printf("WARNING: No temperature warning level given. Defaulting to 80°C\n")
 		tc.warnlevel = 80
 	}
 
-	if _, err := ioutil.ReadFile(tc.path); err != nil {
-		log.Printf("WARNING: Failed to read temperature path. Error: %v\n", err)
-		return nil
-	}
 	return tc
 }
 

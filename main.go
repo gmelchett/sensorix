@@ -4,14 +4,12 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
-	"strconv"
 	"strings"
 	"time"
 
@@ -19,6 +17,7 @@ import (
 	"github.com/sasbury/mini"
 	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/disk"
+	"github.com/shirou/gopsutil/v3/host"
 	"github.com/shirou/gopsutil/v3/mem"
 	smtp "github.com/xhit/go-simple-mail/v2"
 )
@@ -175,22 +174,19 @@ func (tc *tempCfg) check() error {
 		return nil
 	}
 
-	var err error
-	for retry := 0; retry < 5; retry++ {
-		var d []byte
-		d, err = ioutil.ReadFile(tc.path)
+	temps, _ := host.SensorsTemperatures() // Ignore the error code, seems to be broken
 
-		if err == nil {
-			if t, err := strconv.ParseInt(strings.Trim(string(d), "\n"), 10, 64); err == nil {
-				if (t / 1000) < tc.warnlevel {
-					return nil
-				}
-				return fmt.Errorf("TEMPERATURE: WARNING: Current temperature %d°C is above warning level %d°C", t/1000, tc.warnlevel)
-			}
+	msg := ""
+
+	for n := range temps {
+		if temps[n].Temperature > float64(tc.warnlevel) {
+			msg += fmt.Sprintf("TEMPERATURE: WARNING: Current temperature %.1f°C on '%s' is above warning level %d.0°C\n", temps[n].Temperature, temps[n].SensorKey, tc.warnlevel)
 		}
-		time.Sleep(time.Second)
 	}
-	return fmt.Errorf("TEMPERATURE: WARNING: Failed to read temperature. Five attempts failed. Error: %v", err)
+	if msg != "" {
+		return fmt.Errorf(msg)
+	}
+	return nil
 }
 
 func (dc *diskCfg) check() error {
