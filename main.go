@@ -234,6 +234,10 @@ type lxcClusterList []struct {
 
 func (lx *lxdCfg) check() error {
 
+	if lx == nil {
+		return nil
+	}
+
 	errch := make(chan error, 1)
 	cmd := exec.Command(lx.cmd, "cluster", "list", "-f", "json")
 
