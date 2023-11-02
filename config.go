@@ -196,6 +196,31 @@ func parseCPUConfig(cfg *mini.Config) *cpuCfg {
 	return cc
 }
 
+func parseExternalIPConfig(cfg *mini.Config) *externalIPCfg {
+	eipcfg := &externalIPCfg{
+		ipv4: cfg.BooleanFromSection("externalIP", "ipv4", true),
+		ipv6: cfg.BooleanFromSection("externalIP", "ipv6", false),
+	}
+
+	hosts := strings.Split(cfg.StringFromSection("externalIP", "hosts", ""), ",")
+	for _, h := range hosts {
+		if len(strings.TrimSpace(h)) == 0 {
+			continue
+		}
+		if strings.HasPrefix(h, "http://") || strings.HasPrefix(h, "https://") {
+			eipcfg.hosts = append(eipcfg.hosts, h)
+		} else {
+			eipcfg.hosts = append(eipcfg.hosts, "http:://"+h)
+		}
+	}
+
+	if len(eipcfg.hosts) == 0 || (!eipcfg.ipv4 && !eipcfg.ipv6) {
+		return nil
+	}
+
+	return eipcfg
+}
+
 func parseMailConfig(cfg *mini.Config) *mailCfg {
 	mcfg := &mailCfg{
 		host:       cfg.StringFromSection("smtp", "host", ""),

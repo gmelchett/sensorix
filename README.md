@@ -14,6 +14,7 @@ attention. No graphs, no fancy dashboard.
   * Swap usage (Probably not happen when there is RAM..)
   * Pong from other hosts
   * "lxc cluster list" status of all cluster members
+  * External IP (IP v4 and/pr IP v6) address
 
 `sensorix` listens by default on localhost:5678 and any connection made there will receive
 the last update date. Useful to monitor the monitor from for example crontab.
@@ -38,8 +39,7 @@ You need to allow sensorix send pings. (If that feature is enabled):
 
 ## TODO:
   * Count amount of data written disks
-  * smartmon?
-
+  * Daily status mail/gotify with low prio
 
 ## Running
 No special access rights are needed. However running `sensorix` inside a container won't make much sense.

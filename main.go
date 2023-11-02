@@ -1,9 +1,11 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -92,6 +94,18 @@ type lxdCfg struct {
 	cmd string
 }
 
+type externalIPCfg struct {
+	hosts []string
+	ipv4  bool
+	ipv6  bool
+}
+
+type externalIP struct {
+	cfg         *externalIPCfg
+	currentIPv4 string
+	currentIPv6 string
+}
+
 type sensorix struct {
 	interval           int
 	notificationRepeat int
@@ -106,6 +120,7 @@ type sensorix struct {
 	cpu         cpuStat
 	disk        *diskCfg
 	lxd         *lxdCfg
+	externalIP  externalIP
 }
 
 func toGiB(v uint64) uint64 {
@@ -324,6 +339,96 @@ func (pc *pingCfg) check() error {
 	return fmt.Errorf("PING: WARNING: %s", errMsg)
 }
 
+func httpGet(addr string, ipv4 bool) (string, error) {
+	var zeroDialer net.Dialer
+	var httpClient = &http.Client{
+		Timeout: 4 * time.Second,
+	}
+
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	networkType := "tcp4"
+
+	if !ipv4 {
+		networkType = "tcp6"
+	}
+
+	transport.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		return zeroDialer.DialContext(ctx, networkType, addr)
+	}
+	httpClient.Transport = transport
+
+	resp, err := httpClient.Get(addr)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if body, err := io.ReadAll(resp.Body); err == nil {
+		return strings.TrimSpace(strings.ReplaceAll(string(body), "\n", "")), nil
+	} else {
+		return "", err
+	}
+}
+
+func (ei *externalIP) check() error {
+
+	if ei.cfg == nil {
+		return nil
+	}
+
+	errMsg := ""
+
+	if ei.cfg.ipv4 {
+
+		updated := false
+		for _, h := range ei.cfg.hosts {
+			addr, err := httpGet(h, true)
+			if err != nil {
+				continue
+			}
+			if ei.currentIPv4 == "" {
+				ei.currentIPv4 = addr
+			}
+			if ei.currentIPv4 != addr {
+				errMsg = fmt.Sprintf("External IPv4 address changed from: %s to: %s\n", ei.currentIPv4, addr)
+				ei.currentIPv4 = addr
+			}
+			updated = true
+			break
+		}
+		if !updated {
+			errMsg = "Failed to fetch external IPv4 address.\n"
+		}
+	}
+
+	if ei.cfg.ipv6 {
+
+		updated := false
+		for _, h := range ei.cfg.hosts {
+			addr, err := httpGet(h, false)
+			if err != nil {
+				continue
+			}
+			if ei.currentIPv6 == "" {
+				ei.currentIPv6 = addr
+			}
+			if ei.currentIPv6 != addr {
+				errMsg += fmt.Sprintf("External IPv6 address changed from: %s to: %s\n", ei.currentIPv6, addr)
+				ei.currentIPv6 = addr
+			}
+			updated = true
+			break
+		}
+		if !updated {
+			errMsg += "Failed to fetch external IPv6 address.\n"
+		}
+	}
+
+	if errMsg != "" {
+		return fmt.Errorf(errMsg)
+	}
+	return nil
+}
+
 func (gt *gotifyCfg) send(title, msg string) {
 	if gt == nil {
 		return
@@ -458,6 +563,7 @@ func main() {
 	sx.cpu.cfg = parseCPUConfig(cfg)
 	sx.disk = parseDiskConfig(cfg)
 	sx.lxd = parseLXDConfig(cfg)
+	sx.externalIP.cfg = parseExternalIPConfig(cfg)
 
 	go sx.cpu.thread()
 
@@ -487,6 +593,9 @@ func main() {
 			errMsg += fmt.Sprintf("\n%v", err)
 		}
 		if err := sx.lxd.check(); err != nil {
+			errMsg += fmt.Sprintf("\n%v", err)
+		}
+		if err := sx.externalIP.check(); err != nil {
 			errMsg += fmt.Sprintf("\n%v", err)
 		}
 
