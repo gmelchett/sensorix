@@ -1,0 +1,8 @@
+[Unit]
+Description=Sensorix alerts when disk, cpu, mem, temperature etc goes bananas
+
+[Service]
+ExecStart=/usr/local/bin/sensorix -c /usr/local/etc/sensorix.conf
+
+[Install]
+WantedBy=multi-user.target

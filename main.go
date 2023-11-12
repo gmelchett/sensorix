@@ -106,6 +106,19 @@ type externalIP struct {
 	currentIPv6 string
 }
 
+type writesCfg struct {
+	amount  int64
+	hours   int64
+	devices []string
+}
+
+type writes struct {
+	cfg         *writesCfg
+	lastStats   map[string]disk.IOCountersStat
+	overflowed  map[string]int64
+	lastUpdated time.Time
+}
+
 type sensorix struct {
 	interval           int
 	notificationRepeat int
@@ -121,6 +134,7 @@ type sensorix struct {
 	disk        *diskCfg
 	lxd         *lxdCfg
 	externalIP  externalIP
+	writes      writes
 }
 
 func toGiB(v uint64) uint64 {
@@ -369,6 +383,53 @@ func httpGet(addr string, ipv4 bool) (string, error) {
 	}
 }
 
+func (wr *writes) check() error {
+
+	if wr.cfg == nil {
+		return nil
+	}
+
+	if !wr.lastUpdated.IsZero() && time.Now().Sub(wr.lastUpdated).Hours() < 1.0 {
+		return nil
+	}
+
+	wr.lastUpdated = time.Now()
+
+	s, err := disk.IOCounters(wr.cfg.devices...)
+
+	if err != nil {
+		return fmt.Errorf("WARNING: disk.IOCounters failed with: %v", err)
+	}
+
+	// first time.
+	if len(wr.lastStats) == 0 {
+		wr.lastStats = s
+		return nil
+	}
+
+	errTxt := ""
+	for _, dev := range wr.cfg.devices {
+
+		delta := int64(s[dev].WriteBytes - wr.lastStats[dev].WriteBytes)
+		if delta > wr.cfg.amount {
+			wr.overflowed[dev]++
+			if wr.overflowed[dev] >= wr.cfg.hours {
+				errTxt += fmt.Sprintf("Device '%s' has written more than %d GiB per hour for the last %d hours.\n", dev,
+					toGiB(uint64(wr.cfg.amount)), wr.cfg.hours)
+			}
+		} else {
+			wr.overflowed[dev] = 0
+		}
+	}
+
+	wr.lastStats = s
+	if errTxt != "" {
+		return fmt.Errorf("WRITE: %s\n", errTxt)
+	}
+	return nil
+
+}
+
 func (ei *externalIP) check() error {
 
 	if ei.cfg == nil {
@@ -537,6 +598,7 @@ func main() {
 	sx := &sensorix{
 		interval:           int(cfg.IntegerFromSection("sensorix", "interval", 1)),
 		notificationRepeat: int(cfg.IntegerFromSection("sensorix", "notificationrepeat", 20)),
+		writes:             writes{overflowed: make(map[string]int64)},
 	}
 
 	sx.startStatusServer(cfg.StringFromSection("sensorix", "addr", "localhost"), cfg.StringFromSection("sensorix", "port", "5678"))
@@ -564,6 +626,7 @@ func main() {
 	sx.disk = parseDiskConfig(cfg)
 	sx.lxd = parseLXDConfig(cfg)
 	sx.externalIP.cfg = parseExternalIPConfig(cfg)
+	sx.writes.cfg = parseWritesConfig(cfg)
 
 	go sx.cpu.thread()
 
@@ -596,6 +659,9 @@ func main() {
 			errMsg += fmt.Sprintf("\n%v", err)
 		}
 		if err := sx.externalIP.check(); err != nil {
+			errMsg += fmt.Sprintf("\n%v", err)
+		}
+		if err := sx.writes.check(); err != nil {
 			errMsg += fmt.Sprintf("\n%v", err)
 		}
 

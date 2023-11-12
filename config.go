@@ -13,6 +13,22 @@ import (
 	"github.com/shirou/gopsutil/v3/mem"
 )
 
+func parseWritesConfig(cfg *mini.Config) *writesCfg {
+	wr := &writesCfg{
+		amount: cfg.IntegerFromSection("writes", "mount", 1) * 1024 * 1024 * 1024,
+		hours:  cfg.IntegerFromSection("writes", "hours", 6),
+	}
+
+	devices := cfg.StringFromSection("writes", "devices", "")
+	if len(devices) == 0 {
+		fmt.Println("WARNING: No devices to monitor bytes written")
+		return nil
+	}
+	wr.devices = strings.Split(devices, ",")
+
+	return wr
+}
+
 func parseTemperatureConfig(cfg *mini.Config) *tempCfg {
 	tc := &tempCfg{
 		warnlevel: cfg.IntegerFromSection("temperature", "warnlevel", 0),
