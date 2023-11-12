@@ -18,7 +18,7 @@ attention. No graphs, no fancy dashboard.
   * Disk writes
 
 `sensorix` listens by default on localhost:5678 and any connection made there will receive
-the last update date. Useful to monitor the monitor from for example crontab.
+the last update date. Useful to monitor the monitor from for example crontab. See `sensorix-monitor.sh`
 
 ## How `sensorix` alerts:
   * Mail via SMTP
