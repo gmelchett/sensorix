@@ -64,8 +64,8 @@ doas rc-service sensorix-start start
 
 ### Systemd
 
-Edit the include `sensorix.conf` and put it in `/etc/systemd/system/`. Then run
-`sudo systemd enable sensorix && sudo systemctl start senorix`
+Edit the include `sensorix.service` and put it in `/etc/systemd/system/`. Then run
+`sudo systemctl enable sensorix && sudo systemctl start senorix`
 
 # License
 MIT
